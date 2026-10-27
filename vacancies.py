@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # Сбор вакансий по Ефремову: hh.ru, Работа России, Avito. Фильтры и письмо на почту.
-import os, re, sys, json, time, smtplib, datetime, logging
-from email.message import EmailMessage
+import os, re, sys, json, time, datetime, logging, urllib.parse
 import requests
 from bs4 import BeautifulSoup
 
@@ -148,12 +147,12 @@ def fmt(item):
 def send(cfg, subject, body):
     for k in ("SMTP_USER", "SMTP_PASS", "MAIL_TO"):
         if not cfg.get(k): raise RuntimeError("В config.env не заполнено " + k)
-    m = EmailMessage()
-    m["Subject"], m["From"], m["To"] = subject, cfg.get("MAIL_FROM") or cfg["SMTP_USER"], cfg["MAIL_TO"]
-    m.set_content(body)
-    with smtplib.SMTP_SSL(cfg.get("SMTP_HOST", "smtp.agentmail.to"), 465, timeout=60) as s:
-        s.login(cfg["SMTP_USER"], cfg["SMTP_PASS"])
-        s.send_message(m)
+    inbox = urllib.parse.quote(cfg["SMTP_USER"], safe="")
+    r = requests.post("https://api.agentmail.to/v0/inboxes/%s/messages/send" % inbox,
+                      headers={"Authorization": "Bearer " + cfg["SMTP_PASS"]},
+                      json={"to": cfg["MAIL_TO"], "subject": subject, "text": body}, timeout=30)
+    if r.status_code >= 300:
+        raise RuntimeError("AgentMail HTTP %s: %s" % (r.status_code, r.text[:300]))
 
 def main():
     cfg = load_cfg()
@@ -192,5 +191,5 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception:
-        log.exception("fatal"); sys.exit(1)
+    except Exception as e:
+        log.exception("fatal"); print("ОШИБКА:", e, file=sys.stderr); sys.exit(1)
