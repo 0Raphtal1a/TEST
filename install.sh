@@ -4,7 +4,7 @@ mkdir -p /opt/vacancies && cd /opt/vacancies
 cat > vacancies.py << 'PYEOF'
 #!/usr/bin/env python3
 # Сбор вакансий по Ефремову: hh.ru, Работа России, Avito. Фильтры и письмо на почту.
-import os, re, sys, json, time, datetime, logging, urllib.parse
+import os, re, sys, json, time, base64, datetime, logging
 import requests
 from bs4 import BeautifulSoup
 
@@ -148,23 +148,28 @@ def fmt(item):
     lines.append("Ссылка: " + item["url"])
     return "\n".join(lines)
 
-def send(cfg, subject, body):
-    for k in ("SMTP_USER", "SMTP_PASS", "MAIL_TO"):
-        if not cfg.get(k): raise RuntimeError("В config.env не заполнено " + k)
-    inbox = urllib.parse.quote(cfg["SMTP_USER"], safe="")
-    r = requests.post("https://api.agentmail.to/v0/inboxes/%s/messages/send" % inbox,
-                      headers={"Authorization": "Bearer " + cfg["SMTP_PASS"]},
-                      json={"to": cfg["MAIL_TO"], "subject": subject, "text": body}, timeout=30)
-    if r.status_code >= 300:
-        raise RuntimeError("AgentMail HTTP %s: %s" % (r.status_code, r.text[:300]))
+def publish(cfg, text, path="digest/latest.txt"):
+    tok, repo = cfg.get("GITHUB_TOKEN"), cfg.get("GH_REPO", "0Raphtal1a/TEST")
+    if not tok: raise RuntimeError("В config.env не заполнено GITHUB_TOKEN")
+    h = {"Authorization": "Bearer " + tok, "Accept": "application/vnd.github+json", "User-Agent": "vacancies-digest"}
+    url = "https://api.github.com/repos/%s/contents/%s" % (repo, path)
+    g = requests.get(url, headers=h, params={"ref": "main"}, timeout=30)
+    if g.status_code not in (200, 404):
+        raise RuntimeError("GitHub HTTP %s: %s" % (g.status_code, g.text[:300]))
+    body = {"message": "digest", "branch": "main",
+            "content": base64.b64encode(text.encode("utf-8")).decode()}
+    if g.status_code == 200: body["sha"] = g.json().get("sha")
+    p = requests.put(url, headers=h, json=body, timeout=30)
+    if p.status_code >= 300:
+        raise RuntimeError("GitHub HTTP %s: %s" % (p.status_code, p.text[:300]))
 
 def main():
     cfg = load_cfg()
     if "--test" in sys.argv:
-        send(cfg, "Тест: вакансии", "Отправка работает."); print("Тестовое письмо отправлено"); return
+        publish(cfg, "TEST OK\n", "digest/test.txt"); print("Тестовый файл отправлен в GitHub"); return
     state_p = os.path.join(BASE, "seen.json")
     seen = json.load(open(state_p)) if os.path.exists(state_p) else {}
-    today = datetime.date.today()
+    today = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3))).date()
     seen = {k: d for k, d in seen.items() if (today - datetime.date.fromisoformat(d)).days < 90}
     status, items = [], []
     for name, fn in (("hh.ru", src_hh), ("Работа России", src_trudvsem), ("Avito", src_avito)):
@@ -181,14 +186,9 @@ def main():
         keys.add(k); new.append(it)
     ok = sum(1 for s in status if ": OK" in s)
     log.info("%s; новых: %d", "; ".join(status), len(new))
-    if not new and ok:
-        return
-    if not ok:
-        subject, body = "Вакансии: все источники недоступны", "Не удалось получить данные.\n" + "\n".join(status)
-    else:
-        subject = "Вакансии %s: %d новых, %s" % (cfg["CITY"], len(new), today.strftime("%d.%m"))
-        body = "\n\n".join(fmt(i) for i in new) + "\n\n--\nИсточники: " + "; ".join(status)
-    send(cfg, subject, body)
+    count = len(new) if ok else -1
+    head = "DATE: %s\nCOUNT: %d\nSTATUS: %s\n---\n" % (today.isoformat(), count, "; ".join(status))
+    publish(cfg, head + "\n\n".join(fmt(i) for i in new) + "\n")
     for k in keys: seen[k] = today.isoformat()
     json.dump(seen, open(state_p, "w"), ensure_ascii=False)
 
@@ -199,11 +199,9 @@ if __name__ == "__main__":
         log.exception("fatal"); print("ОШИБКА:", e, file=sys.stderr); sys.exit(1)
 PYEOF
 [ -f config.env ] || cat > config.env << 'EOF'
-# Отправка через AgentMail: от ящика raphtal1a_dev на Yahoo
-SMTP_HOST=smtp.agentmail.to
-SMTP_USER=raphtal1a_dev@agentmail.to
-SMTP_PASS=API_КЛЮЧ_AGENTMAIL
-MAIL_TO=Raphtal1a@yahoo.com
+# Токен GitHub с правом записи в репозиторий TEST (впишите командой из инструкции)
+GITHUB_TOKEN=
+GH_REPO=0Raphtal1a/TEST
 # Необязательно: код города на hh.ru, если скрипт не найдёт его сам
 HH_AREA_ID=
 EOF
