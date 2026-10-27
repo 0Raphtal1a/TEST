@@ -31,7 +31,7 @@ class Blocked(Exception):
     pass
 
 def get(url, **kw):
-    r = requests.get(url, headers=UA, timeout=30, **kw)
+    r = requests.get(url, headers=UA, timeout=20, **kw)
     if r.status_code in (403, 429) or "captcha" in r.text[:5000].lower() or "Доступ ограничен" in r.text[:5000]:
         raise Blocked("%s: HTTP %s / защита от роботов" % (url.split("/")[2], r.status_code))
     r.raise_for_status()
@@ -57,11 +57,16 @@ def keep(item, cfg):
 
 # ---------- источники ----------
 def src_trudvsem(cfg):
-    out, offset, limit = [], 0, 100
-    while offset < 80:
-        r = get("http://opendata.trudvsem.ru/api/v1/vacancies/region/7100000000",
-                params={"offset": offset, "limit": limit})
-        vs = (r.json().get("results") or {}).get("vacancies") or []
+    out, page, limit, t0 = [], 0, 100, time.time()
+    while page < 80 and time.time() - t0 < 120:
+        try:
+            r = get("http://opendata.trudvsem.ru/api/v1/vacancies/region/7100000000",
+                    params={"offset": page, "limit": limit})
+            vs = (r.json().get("results") or {}).get("vacancies") or []
+        except Exception:
+            if page == 0: raise
+            log.warning("Работа России: остановился на странице %d", page)
+            break
         for w in vs:
             v = w.get("vacancy") or {}
             addr = " ".join(a.get("location", "") for a in ((v.get("addresses") or {}).get("address") or []))
@@ -84,8 +89,9 @@ def src_trudvsem(cfg):
                         "text": " ".join([str(v.get("schedule") or ""), str(v.get("duty") or "")]), "src": "Работа России"})
         if len(vs) < limit:
             break
-        offset += 1
+        page += 1
         time.sleep(1)
+    log.info("Работа России: страниц %d, за %d с", page + 1, time.time() - t0)
     return out
 
 def hh_area(cfg):
@@ -155,6 +161,8 @@ def send(cfg, subject, body):
 
 def main():
     cfg = load_cfg()
+    if "--test" in sys.argv:
+        send(cfg, "Тест: вакансии", "Отправка работает."); print("Тестовое письмо отправлено"); return
     state_p = os.path.join(BASE, "seen.json")
     seen = json.load(open(state_p)) if os.path.exists(state_p) else {}
     today = datetime.date.today()
