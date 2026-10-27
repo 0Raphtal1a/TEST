@@ -54,7 +54,7 @@ def keep(item, cfg):
 # ---------- источники ----------
 def src_trudvsem(cfg):
     out, offset, limit = [], 0, 100
-    while offset < 10000:
+    while offset < 80:
         r = get("http://opendata.trudvsem.ru/api/v1/vacancies/region/7100000000",
                 params={"offset": offset, "limit": limit})
         vs = (r.json().get("results") or {}).get("vacancies") or []
@@ -80,7 +80,7 @@ def src_trudvsem(cfg):
                         "text": " ".join([str(v.get("schedule") or ""), str(v.get("duty") or "")]), "src": "Работа России"})
         if len(vs) < limit:
             break
-        offset += limit
+        offset += 1
         time.sleep(1)
     return out
 
