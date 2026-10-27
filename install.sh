@@ -149,7 +149,7 @@ def send(cfg, subject, body):
     m = EmailMessage()
     m["Subject"], m["From"], m["To"] = subject, cfg.get("MAIL_FROM") or cfg["SMTP_USER"], cfg["MAIL_TO"]
     m.set_content(body)
-    with smtplib.SMTP_SSL("smtp.mail.yahoo.com", 465, timeout=60) as s:
+    with smtplib.SMTP_SSL(cfg.get("SMTP_HOST", "smtp.agentmail.to"), 465, timeout=60) as s:
         s.login(cfg["SMTP_USER"], cfg["SMTP_PASS"])
         s.send_message(m)
 
@@ -192,9 +192,10 @@ if __name__ == "__main__":
         log.exception("fatal"); sys.exit(1)
 PYEOF
 [ -f config.env ] || cat > config.env << 'EOF'
-# Заполните три строки ниже и сохраните (Ctrl+O, Enter, Ctrl+X)
-SMTP_USER=Raphtal1a@yahoo.com
-SMTP_PASS=ПАРОЛЬ_ПРИЛОЖЕНИЯ_YAHOO
+# Отправка через AgentMail: от ящика raphtal1a_dev на Yahoo
+SMTP_HOST=smtp.agentmail.to
+SMTP_USER=raphtal1a_dev@agentmail.to
+SMTP_PASS=API_КЛЮЧ_AGENTMAIL
 MAIL_TO=Raphtal1a@yahoo.com
 # Необязательно: код города на hh.ru, если скрипт не найдёт его сам
 HH_AREA_ID=

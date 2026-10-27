@@ -145,7 +145,7 @@ def send(cfg, subject, body):
     m = EmailMessage()
     m["Subject"], m["From"], m["To"] = subject, cfg.get("MAIL_FROM") or cfg["SMTP_USER"], cfg["MAIL_TO"]
     m.set_content(body)
-    with smtplib.SMTP_SSL("smtp.mail.yahoo.com", 465, timeout=60) as s:
+    with smtplib.SMTP_SSL(cfg.get("SMTP_HOST", "smtp.agentmail.to"), 465, timeout=60) as s:
         s.login(cfg["SMTP_USER"], cfg["SMTP_PASS"])
         s.send_message(m)
 
